@@ -32,22 +32,34 @@ The 8-bit mask is how we encode braille patterns as numbers that the computer ca
 - Unicode: U+2803 (U+2800 + 3)
 
 ### Code Implementation:
+
+The bit-to-dot assignment depends on the mode, because 6-dot and 8-dot
+braille number their columns differently (6-dot: 1-3 left / 4-6 right;
+8-dot: 1-4 left / 5-8 right). The lookup table and the capture code must
+agree on the same convention -- bit n = dot n+1:
+
 ```cpp
-// Build the 8-bit mask from finger inputs
+// 6-dot mode: dots 1-3 = bits 0-2 (left phase), dots 4-6 = bits 3-5 (right phase)
 uint8_t leftHalf = 0;
-if (indexPressed) leftHalf |= 0x01;  // Bit 0 (dot 1)
-if (middlePressed) leftHalf |= 0x02; // Bit 1 (dot 2)  
-if (ringPressed) leftHalf |= 0x04;   // Bit 2 (dot 3)
-if (pinkyPressed) leftHalf |= 0x08;  // Bit 3 (dot 4) - 8-dot only
+if (indexPressed)  leftHalf |= 0x01;  // Bit 0 (dot 1)
+if (middlePressed) leftHalf |= 0x02;  // Bit 1 (dot 2)
+if (ringPressed)   leftHalf |= 0x04;  // Bit 2 (dot 3)
 
 uint8_t rightHalf = 0;
-if (indexPressed) rightHalf |= 0x10; // Bit 4 (dot 5)
-if (middlePressed) rightHalf |= 0x20; // Bit 5 (dot 6)
-if (ringPressed) rightHalf |= 0x40;  // Bit 6 (dot 7)
-if (pinkyPressed) rightHalf |= 0x80; // Bit 7 (dot 8) - 8-dot only
+if (indexPressed)  rightHalf |= 0x08; // Bit 3 (dot 4)
+if (middlePressed) rightHalf |= 0x10; // Bit 4 (dot 5)
+if (ringPressed)   rightHalf |= 0x20; // Bit 5 (dot 6)
 
 uint8_t fullMask = leftHalf | rightHalf;
 ```
+
+In 8-dot mode the pinky joins in and the right column shifts up: left
+phase sets bits 0-3 (dots 1-4), right phase sets bits 4-7 (dots 5-8).
+
+**Capture timing gotcha:** the pattern must be *accumulated while keys are
+held* (OR each newly-pressed key into a running mask) and committed once
+all keys are released -- reading the key states after release yields an
+empty mask, since everything is already up.
 
 ## Hardware Specifications
 
@@ -73,45 +85,57 @@ uint8_t fullMask = leftHalf | rightHalf;
 
 ### Pin Assignments (Arduino Pro Micro)
 
+A real Pro Micro breaks out digital pins 2-10 and 14-16 plus analog
+A0-A3. PWM is only available on pins 3, 5, 6, 9, and 10 -- the haptic
+motor must live on one of those.
+
 ```
-Finger Keys (Digital Input with Pull-up):
-- Index Finger:    Pin 2 (PD1)
-- Middle Finger:   Pin 3 (PD0) 
-- Ring Finger:     Pin 4 (PD4)
-- Pinky:          Pin 5 (PC6)
+Finger Keys (Digital Input, internal pull-ups -- no external resistors):
+- Index Finger:   Pin 2
+- Middle Finger:  Pin 3
+- Ring Finger:    Pin 4
+- Pinky:          Pin 5
 
-Thumb Controls (Digital Input with Pull-up):
-- Thumb Up:       Pin 6 (PD7)
-- Thumb Down:     Pin 7 (PE6)
-- Thumb Left:     Pin 8 (PB4)
-- Thumb Right:    Pin 9 (PB5)
-- Thumb Press:    Pin 10 (PB6)
+Thumb Joystick (Keyes-style analog module):
+- VRx (X axis):   A0
+- VRy (Y axis):   A1
+- SW  (press):    Pin 7 (internal pull-up)
 
-Haptic Motor (PWM Output):
-- Motor Control:  Pin 11 (PB7) via NPN transistor
+Haptic Motor:
+- Motor Control:  Pin 9 (PWM) via NPN transistor
 
 Power:
 - VCC: 5V (from USB)
 - GND: Common ground
 ```
 
+The analog joystick uses 3 pins instead of the 5 a digital 5-way switch
+would need, and the self-centering stick gives tactile "home position"
+feedback for free. Directions are derived in firmware by thresholding
+the ADC readings with hysteresis.
+
 ### Haptic Motor Circuit
 
 ```
-VCC (5V) ----[Motor]----[NPN Collector]
-                    |
-                    [NPN Emitter]----GND
-                    |
-              [1kΩ Resistor]----Pin 11 (PB7)
-                    |
-              [NPN Base]
+VCC (5V) ---+----[Coin Motor]----+---- NPN Collector
+            |                    |
+            +---|<|--(1N4148)----+      <- flyback diode ACROSS the motor,
+                 cathode to VCC            cathode (banded end) to VCC
+
+Pin 9 ----[330R-1k Resistor]---- NPN Base
+
+NPN Emitter ---- GND
 ```
 
+The flyback diode goes **across the motor terminals** (cathode toward
+VCC), not anywhere near the base -- it absorbs the inductive spike when
+the transistor switches off.
+
 **Parts Needed:**
-- 1x NPN Transistor (2N2222 or similar)
-- 1x 1kΩ Resistor
+- 1x NPN Transistor (2N2222 / PN2222A or similar)
+- 1x 330R-1k base resistor (330R preferred: guarantees saturation)
 - 1x Coin Vibration Motor (3V-5V)
-- 1x Flyback Diode (1N4148) - optional but recommended
+- 1x Flyback Diode (1N4148) -- cheap insurance, use it
 
 ### Construction Guide
 
@@ -126,10 +150,11 @@ Top View (held in right hand):
 #### Step 2: Wiring
 1. **Mount switches** on cardboard/perfboard at comfortable angles
 2. **Wire all switch commons** to GND
-3. **Wire each switch signal** to its assigned GPIO pin
-4. **Add pull-up resistors** (10kΩ) between each signal pin and VCC
-5. **Mount thumb control** for easy thumb access
-6. **Install haptic motor** where it can be felt through the case
+3. **Wire each switch signal** to its assigned GPIO pin (the firmware
+   enables internal pull-ups -- no external pull-up resistors needed)
+4. **Mount the joystick** where the thumb naturally rests; wire VRx/VRy
+   to A0/A1, SW to pin 7, plus VCC and GND
+5. **Install haptic motor** where it can be felt through the case
 
 #### Step 3: Software Setup
 1. **Install Arduino IDE** with Pro Micro support
@@ -143,22 +168,37 @@ Top View (held in right hand):
 #### State Machine
 ```cpp
 enum InputState {
-  WAIT_LEFT,      // Waiting for left half input
-  LEFT_LOCKED,    // Left half captured, waiting for right
-  WAIT_RIGHT,     // Waiting for right half input  
-  RIGHT_LOCKED,   // Right half captured, ready to emit
-  EMIT,           // Sending character via USB
-  CONFIG          // Configuration mode
+  IDLE,           // Nothing captured, waiting for first finger press
+  CAPTURE_LEFT,   // Fingers down, accumulating left-column mask
+  WAIT_RIGHT,     // Left half locked; waiting for right half or timeout
+  CAPTURE_RIGHT   // Fingers down again, accumulating right-column mask
 };
 ```
 
+A phase's pattern is accumulated while keys are held and committed once
+all keys have been released for a short settle time. If no right half
+arrives within the phase timeout, the left half is emitted alone
+(left-only letters: a, b, k, l, ...). Config mode is a separate flag
+entered by holding the joystick press for 3 seconds.
+
 #### Key Functions
-- `scanKeys()`: Read all inputs with debouncing
-- `processLeftHalf()`: Capture and lock left half pattern
-- `processRightHalf()`: Capture and lock right half pattern
-- `emitCharacter()`: Convert braille mask to character and send via USB
-- `hapticFeedback()`: Control vibration motor
-- `brailleToAscii()`: Convert braille pattern to ASCII character
+- `scanKeys()`: Debounce finger keys and joystick button; threshold the
+  joystick axes into up/down/left/right with hysteresis
+- `accumulate()`: OR currently-held fingers into the capture mask
+  (left or right column bit positions)
+- `emitPattern()`: Convert braille mask to character, send via USB HID,
+  fire haptic feedback
+- `playHaptic()` / `updateHaptic()`: Non-blocking vibration patterns
+  (blocking delay()s would freeze key scanning mid-buzz)
+- `brailleToAscii()`: Convert braille mask to ASCII character
+
+#### Thumb Functions
+- **Press (short)**: Space (fires on release, so a config-mode hold
+  doesn't also type a space)
+- **Up**: Enter
+- **Down**: Backspace
+- **Left**: Cancel the current character mid-entry
+- **Right**: Reserved (future: number/mode prefix)
 
 ### Braille Character Mapping
 
@@ -184,10 +224,10 @@ J = 2,4,5 (dots 2,4,5)
 
 ### Configuration Mode
 
-**Enter**: Hold thumb press for 3 seconds at startup
+**Enter**: Hold joystick press for 3 seconds (any time)
 **Navigate**: Use thumb directions
 **Settings**:
-- Phase timeout (100-500ms)
+- Phase timeout (default 600ms)
 - Haptic intensity (0-255)
 - Mode selection (6-cell/8-cell)
 - Key repeat prevention (on/off)
@@ -195,7 +235,7 @@ J = 2,4,5 (dots 2,4,5)
 ### Troubleshooting
 
 #### Common Issues
-1. **Keys not registering**: Check wiring, pull-up resistors
+1. **Keys not registering**: Check wiring and that switch commons go to GND (pull-ups are internal)
 2. **USB not recognized**: Check Pro Micro drivers, try different USB port
 3. **Haptic not working**: Check transistor wiring, motor polarity
 4. **Character errors**: Verify braille mapping, check debounce timing
@@ -213,13 +253,16 @@ J = 2,4,5 (dots 2,4,5)
 #### Essential Components
 - 1x Arduino Pro Micro (ATmega32U4)
 - 4x Box Jade switches (or similar tactile switches)
-- 1x 5-way joystick or 4x momentary switches for thumb
+- 1x Analog thumb joystick module (Keyes-style: VRx/VRy/SW)
 - 1x Coin vibration motor (3V-5V)
-- 1x NPN transistor (2N2222)
-- 1x 1kΩ resistor
-- 4x 10kΩ pull-up resistors
-- 1x 1N4148 diode (flyback protection)
+- 1x NPN transistor (2N2222 / PN2222A)
+- 1x 330R-1k base resistor
+- 1x 1N4148 diode (flyback protection, across the motor)
 - Wire, perfboard, cardboard for case
+
+No external pull-up resistors are needed -- the ATmega32U4's internal
+pull-ups are enabled in firmware for every switch input.
+
 
 #### Optional Upgrades
 - 1x LiPo battery (3.7V, 500mAh+)

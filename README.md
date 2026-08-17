@@ -12,7 +12,7 @@ The Braille-Click device allows users to input text using standard 6-cell or ext
 
 ## Key Features
 
-- **Ergonomic Design**: Held in loose fist, four fingers on keys, thumb on toggle
+- **Ergonomic Design**: Held in loose fist, four fingers on keys, thumb on a self-centering analog joystick (neutral is always findable by feel)
 - **Two-Phase Input**: Left half → Right half → Character output
 - **Haptic Feedback**: Gentle vibration to confirm input phases and character registration
 - **Dual Modes**: 6-cell (standard) and 8-cell (extended) braille support
@@ -25,7 +25,15 @@ The Braille-Click device allows users to input text using standard 6-cell or ext
 - **Index Finger**: Dot 1 (top-left) / Dot 4 (top-right)
 - **Middle Finger**: Dot 2 (middle-left) / Dot 5 (middle-right)  
 - **Ring Finger**: Dot 3 (bottom-left) / Dot 6 (bottom-right)
-- **Pinky**: Mode modifier or unused
+- **Pinky**: Reserved (unused in 6-cell mode)
+
+### Thumb Functions
+- **Press (short)**: Space
+- **Up**: Enter
+- **Down**: Backspace
+- **Left**: Cancel current character
+- **Right**: Reserved (future: number/mode prefix)
+- **Press (hold 3s)**: Configuration mode
 
 ### 8-Cell Mode
 - **Index Finger**: Dot 1 (top-left) / Dot 5 (top-right)
