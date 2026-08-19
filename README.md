@@ -32,8 +32,12 @@ The Braille-Click device allows users to input text using standard 6-cell or ext
 - **Up**: Enter
 - **Down**: Backspace
 - **Left**: Cancel current character
-- **Right**: Reserved (future: number/mode prefix)
+- **Right**: Skip left half — enter a right-column-only cell (e.g. the capital indicator, dot 6)
 - **Press (hold 3s)**: Configuration mode
+
+### Indicators
+- **Dot 6 alone** (thumb-right, then right-phase middle finger): capitalize the next letter
+- **Dots 3,4,5,6** (left ring, then right index+middle+ring): number mode — a–j emit 1–0 until the next space
 
 ### 8-Cell Mode
 - **Index Finger**: Dot 1 (top-left) / Dot 5 (top-right)

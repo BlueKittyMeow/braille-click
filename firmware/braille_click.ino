@@ -21,7 +21,11 @@
  *   Up     = Enter
  *   Down   = Backspace
  *   Left   = Cancel current character (abandon captured left half)
- *   Right  = reserved (future: number/mode prefix)
+ *   Right  = Skip left half (enter a right-column-only cell)
+ *
+ * Indicators (right-column-only cells, entered via thumb-right):
+ *   Dot 6 alone      = capital indicator (next letter uppercase)
+ *   Dots 3,4,5,6     = number indicator (a-j emit 1-0 until a space)
  */
 
 #include <Keyboard.h>
@@ -92,6 +96,10 @@ bool joyDirPrev[4] = {false, false, false, false};
 
 bool configMode = false;
 bool configArmed = true; // blocks re-trigger until button released
+
+// Braille indicator state
+bool capsNext   = false; // dot 6 entered: uppercase the next letter
+bool numberMode = false; // dots 3456 entered: a-j emit 1-0 until a space
 
 // ---------------------------------------------------------------------------
 // Non-blocking haptic player
@@ -250,8 +258,30 @@ void resetInput() {
 }
 
 void emitPattern(uint8_t pattern) {
+  // Indicator cells set state instead of typing a character
+  if (pattern == 0x20) {                 // dot 6: capital indicator
+    capsNext = true;
+    PLAY(PATTERN_LOCK);
+    Serial.println("Capital indicator");
+    resetInput();
+    return;
+  }
+  if (pattern == 0x3C) {                 // dots 3,4,5,6: number indicator
+    numberMode = true;
+    PLAY(PATTERN_LOCK);
+    Serial.println("Number indicator");
+    resetInput();
+    return;
+  }
+
   char c = brailleToAscii(pattern);
   if (c != 0) {
+    if (numberMode && c >= 'a' && c <= 'j') {
+      c = (c == 'j') ? '0' : ('1' + (c - 'a'));   // a-i -> 1-9, j -> 0
+    } else if (capsNext && c >= 'a' && c <= 'z') {
+      c = c - 'a' + 'A';
+      capsNext = false;
+    }
     Keyboard.write(c);
     PLAY(PATTERN_EMIT);
     Serial.print("Emitted: ");
@@ -294,14 +324,25 @@ void loop() {
     // doesn't also type a space first.
     if (!joyBtnState && joyBtnPrev && now - joyBtnHeldSince < CONFIG_HOLD_TIME) {
       Keyboard.write(' ');
+      numberMode = false;               // a space terminates number mode
       PLAY(PATTERN_EMIT);
     }
-    if (dirPressed(0)) { Keyboard.write('\n'); PLAY(PATTERN_EMIT); }   // up = enter
+    if (dirPressed(0)) { Keyboard.write('\n'); numberMode = false; PLAY(PATTERN_EMIT); } // up = enter
     if (dirPressed(1)) { Keyboard.write('\b'); PLAY(PATTERN_EMIT); }   // down = backspace
+    if (dirPressed(3)) {                                               // right = skip left half
+      leftPattern = 0;
+      captureMask = 0;
+      currentState = WAIT_RIGHT;
+      phaseTimeRef = now;
+      PLAY(PATTERN_LOCK);
+      Serial.println("Left half skipped");
+    }
   }
-  // Cancel works from any capture state
+  // Cancel works from any capture state and clears pending indicators
   if (currentState != IDLE && dirPressed(2)) {                          // left = cancel
     resetInput();
+    capsNext = false;
+    numberMode = false;
     PLAY(PATTERN_CANCEL);
     Serial.println("Cancelled");
   }
@@ -340,7 +381,13 @@ void loop() {
         currentState = CAPTURE_RIGHT;
         allUpSince = 0;
       } else if (now - phaseTimeRef >= PHASE_TIMEOUT) {
-        emitPattern(leftPattern);  // left-only character (a, b, k, l, ...)
+        if (leftPattern == 0) {
+          // Skipped left half but no right half arrived: quietly reset
+          resetInput();
+          PLAY(PATTERN_CANCEL);
+        } else {
+          emitPattern(leftPattern);  // left-only character (a, b, k, l, ...)
+        }
       }
       break;
 

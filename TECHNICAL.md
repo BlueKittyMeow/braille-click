@@ -197,8 +197,19 @@ entered by holding the joystick press for 3 seconds.
   doesn't also type a space)
 - **Up**: Enter
 - **Down**: Backspace
-- **Left**: Cancel the current character mid-entry
-- **Right**: Reserved (future: number/mode prefix)
+- **Left**: Cancel the current character mid-entry (also clears pending
+  capital/number indicators)
+- **Right**: Skip the left half -- locks an empty left column so the next
+  chord captures as the right column. This is how right-column-only
+  cells are entered (every letter a-z has at least one left-column dot,
+  but indicators like the capital sign are right-only). If no right
+  half follows within the phase timeout, the skip quietly cancels.
+
+#### Indicators
+- **Capital (dot 6 alone)**: sets a caps-next flag; the next letter is
+  emitted uppercase
+- **Number (dots 3,4,5,6)**: enters number mode; a-j emit 1-0 until a
+  space or enter terminates it
 
 ### Braille Character Mapping
 
